@@ -1,18 +1,20 @@
 module [
+    HostErr,
     Url,
     append,
-    from_str,
-    to_str,
     append_param,
-    has_query,
-    has_fragment,
-    query,
     fragment,
-    reserve,
-    with_query,
-    with_fragment,
-    query_params,
+    from_str,
+    has_fragment,
+    has_query,
+    host,
     path,
+    query,
+    query_params,
+    reserve,
+    to_str,
+    with_fragment,
+    with_query,
 ]
 
 ## A [Uniform Resource Locator](https://en.wikipedia.org/wiki/URL).
@@ -516,3 +518,200 @@ expect
     output = Url.path(input)
     expected = "/foo/bar"
     output == expected
+
+## Returns the URL's [host](https://en.wikipedia.org/wiki/URL#Syntax).
+##
+## Returns `Err(RelativeUrl)` if the URL is relative or `Err(HostMissing)` if the URL appears absolute but has no host.
+##
+## ```
+## # Gives "hello.example.com:8000"
+## Url.from_str("https://hello.example.com:8000/?key1=val1&key2=val2&key3=val3#stuff")
+## |> Url.host
+## ```
+##
+## ```
+## # Gives Err(RelativeUrl)
+## Url.from_str("/foo/?key1=val1&key2=val2&key3=val3#stuff")
+## |> Url.host
+## ```
+##
+## ```
+## # Gives "irc.gov"
+## Url.from_str("http://AzureDiamond:hunter2@irc.gov/")
+## |> Url.host
+## ```
+HostErr : [
+    RelativeUrl,
+    HostMissing,
+]
+
+host : Url -> Result Str HostErr
+host = |url|
+    when Str.split_on(Url.to_str(url), "/") is
+        [] | [""] | [_scheme, "", "", ..] -> Err(HostMissing)
+        ["", "", authority, ..] -> extract_host_from_authority(authority)
+        ["", ..] -> Err(RelativeUrl)
+        [_scheme, "", authority, ..] | [authority, ..] -> extract_host_from_authority(authority)
+
+extract_host_from_authority = |authority|
+    when Str.split_first(authority, "@") is
+        Ok({ after }) ->
+            when after is
+                "" -> Err(HostMissing)
+                host_ -> Ok(host_)
+
+        Err(_) -> Ok(authority)
+
+# HTTPS scheme
+expect
+    input = "https://foo.example.com/baz"
+    output = host(Url.from_str(input))
+    expected = Ok("foo.example.com")
+    expected == output
+
+# HTTP scheme
+expect
+    input = "http://foo.example.com/baz"
+    output = host(Url.from_str(input))
+    expected = Ok("foo.example.com")
+    expected == output
+
+# FTP scheme
+expect
+    input = "ftp://files.example.com/downloads"
+    output = host(Url.from_str(input))
+    expected = Ok("files.example.com")
+    expected == output
+
+# Without protocol
+expect
+    input = "foo.example.com/baz"
+    output = host(Url.from_str(input))
+    expected = Ok("foo.example.com")
+    expected == output
+
+# Without host
+expect
+    input = "/baz"
+    output = host(Url.from_str(input))
+    expected = Err(RelativeUrl)
+    expected == output
+
+# With port
+expect
+    input = "https://foo.example.com:8080/baz"
+    output = host(Url.from_str(input))
+    expected = Ok("foo.example.com:8080")
+    expected == output
+
+# With query parameters
+expect
+    input = "https://foo.example.com/baz?x=1&y=2"
+    output = host(Url.from_str(input))
+    expected = Ok("foo.example.com")
+    expected == output
+
+# With trailing slash only
+expect
+    input = "https://foo.example.com/"
+    output = host(Url.from_str(input))
+    expected = Ok("foo.example.com")
+    expected == output
+
+# Only domain
+expect
+    input = "foo.example.com"
+    output = host(Url.from_str(input))
+    expected = Ok("foo.example.com")
+    expected == output
+
+# Relative URL with query
+expect
+    input = "/foo/bar?test=true"
+    output = host(Url.from_str(input))
+    expected = Err(RelativeUrl)
+    expected == output
+
+# Empty string
+expect
+    input = ""
+    output = host(Url.from_str(input))
+    expected = Err(HostMissing)
+    expected == output
+
+# Scheme only
+expect
+    input = "https://"
+    output = host(Url.from_str(input))
+    expected = Err(HostMissing)
+    expected == output
+
+# Double slashes in path
+expect
+    input = "https://foo.example.com//baz"
+    output = host(Url.from_str(input))
+    expected = Ok("foo.example.com")
+    expected == output
+
+# Basic auth in URL
+expect
+    input = "https://user:pass@secure.example.com/secret"
+    output = host(Url.from_str(input))
+    expected = Ok("secure.example.com")
+    expected == output
+
+# IP address as host
+expect
+    input = "http://192.168.1.1/settings"
+    output = host(Url.from_str(input))
+    expected = Ok("192.168.1.1")
+    expected == output
+
+# Localhost
+expect
+    input = "http://localhost:3000/"
+    output = host(Url.from_str(input))
+    expected = Ok("localhost:3000")
+    expected == output
+
+# File protocol
+expect
+    input = "file:///etc/passwd"
+    output = host(Url.from_str(input))
+    expected = Err(HostMissing)
+    expected == output
+
+# Only scheme and userinfo
+expect
+    input = "https://user@"
+    output = host(Url.from_str(input))
+    expected = Err(HostMissing)
+    expected == output
+
+# Double-slash without scheme
+expect
+    input = "//foo.example.com/path"
+    output = host(Url.from_str(input))
+    expected = Ok("foo.example.com")
+    expected == output
+
+# Uppercase domain
+expect
+    input = "https://FOO.EXAMPLE.COM/path"
+    output = host(Url.from_str(input))
+    expected = Ok("FOO.EXAMPLE.COM")
+    expected == output
+
+# # No slashes after protocol: is this valid?
+# expect
+#     input = "https:foo.example.com/path"
+#     output = host(Url.from_str(input))
+#     expected = Ok("foo.example.com")
+#     expected == output
+
+# Port only, no hostname: is this valid?
+# expect
+#     input = "https://:3000/path"
+#     output = host(Url.from_str(input))
+#     expected = Ok(":3000")
+#     expected == output
