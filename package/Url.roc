@@ -483,7 +483,7 @@ query_params = |url|
 ## ```
 path : Url -> Str
 path = |@Url(url_str)|
-    without_authority =
+    without_scheme =
         if Str.starts_with(url_str, "/") then
             url_str
         else
@@ -499,12 +499,12 @@ path = |@Url(url_str)|
                 Err(NotFound) -> url_str
 
     # Drop the query and/or fragment
-    when Str.split_last(without_authority, "?") is
+    when Str.split_last(without_scheme, "?") is
         Ok({ before }) -> before
         Err(NotFound) ->
-            when Str.split_last(without_authority, "#") is
+            when Str.split_last(without_scheme, "#") is
                 Ok({ before }) -> before
-                Err(NotFound) -> without_authority
+                Err(NotFound) -> without_scheme
 
 # `Url.path` supports non-encoded URIs in query parameters (https://datatracker.ietf.org/doc/html/rfc3986#section-3.4)
 expect

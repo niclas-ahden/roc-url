@@ -21,6 +21,7 @@
           default = pkgs.mkShell {
             buildInputs = [
               rocFull
+              pkgs.watchexec
             ];
 
             # For vscode plugin https://github.com/ivan-demchenko/roc-vscode-unofficial
