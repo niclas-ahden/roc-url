@@ -9,6 +9,8 @@ module [
     has_query,
     host,
     path,
+    percent_decode,
+    percent_encode,
     query,
     query_params,
     reserve,
@@ -178,18 +180,24 @@ append_help = |prefix, suffix|
         |> Str.concat("/")
         |> Str.concat(suffix)
 
-## Internal helper. This is intentionally unexposed so that you don't accidentally
-## double-encode things. If you really want to percent-encode an arbitrary string,
-## you can always do:
+## [Percent-encodes](https://en.wikipedia.org/wiki/Percent-encoding) a string according to
+## [RFC 3986](https://www.ietf.org/rfc/rfc3986.txt).
+##
+## This encodes all characters except unreserved characters (A-Z, a-z, 0-9, `-`, `_`, `.`, `~`).
 ##
 ## ```
-## Url.from_str("")
-## |> Url.append(my_str_to_encode)
-## |> Url.to_str
+## # Gives "Hello%20World"
+## Url.percent_encode("Hello World")
+##
+## # Gives "a%2Bb%26c%3Dd"
+## Url.percent_encode("a+b&c=d")
 ## ```
 ##
-## > It is recommended to encode spaces as `%20`, the HTML 2.0 specification
-## suggests that these can be encoded as `+`, however this is not always safe to
+## **Note:** Be careful not to double-encode strings. If you're building URLs, prefer using
+## [Url.append] or [Url.append_param] which handle encoding automatically.
+##
+## > It is recommended to encode spaces as `%20`. The HTML 2.0 specification
+## suggests that spaces can be encoded as `+`, however this is not always safe to
 ## use. See [this stackoverflow discussion](https://stackoverflow.com/questions/2678551/when-should-space-be-encoded-to-plus-or-20/47188851#47188851)
 ## for a detailed explanation.
 percent_encode : Str -> Str
@@ -232,6 +240,74 @@ percent_encode = |input|
 
     Str.from_utf8(answer)
     |> Result.with_default("") # This should never fail
+
+## [Percent-decodes](https://en.wikipedia.org/wiki/Percent-encoding) a string.
+##
+## This converts percent-encoded sequences like `%20` back to their original characters.
+##
+## ```
+## # Gives Ok("Hello World")
+## Url.percent_decode("Hello%20World")
+##
+## # Gives Ok("a+b&c=d")
+## Url.percent_decode("a%2Bb%26c%3Dd")
+##
+## # Gives Ok("café")
+## Url.percent_decode("caf%C3%A9")
+## ```
+##
+## Returns `Err(InvalidEncoding)` if the input contains invalid percent-encoded sequences.
+percent_decode : Str -> Result Str [InvalidEncoding]
+percent_decode = |encoded|
+    r =
+        Str.walk_utf8(
+            encoded,
+            Ok({ utf8: [], action: Step }),
+            |state, codepoint|
+                when state is
+                    Err(_) -> state
+                    Ok(s) ->
+                        when codepoint is
+                            37 -> Ok({ s & action: TakeFirst }) # Codepoint 37 is %
+                            _ ->
+                                when s.action is
+                                    TakeFirst -> Ok({ s & action: TakeSecond(codepoint) })
+                                    TakeSecond(previous_codepoint) ->
+                                        when hex_pair_to_decimal(previous_codepoint, codepoint) is
+                                            Ok(decoded_byte) ->
+                                                Ok({
+                                                    s &
+                                                    utf8: List.append(s.utf8, decoded_byte),
+                                                    action: Step,
+                                                })
+
+                                            Err(_) -> Err(InvalidEncoding)
+
+                                    Step -> Ok({ s & utf8: List.append(s.utf8, codepoint) }),
+        )
+        |> Result.map_err(|_| InvalidEncoding)?
+
+    Str.from_utf8(r.utf8)
+    |> Result.map_err(|_| InvalidEncoding)
+
+## Internal helper for percent_decode
+hex_pair_to_decimal : U8, U8 -> Result U8 [InvalidHex]
+hex_pair_to_decimal = |first, second|
+    first_hex = hex_char_to_decimal(first)?
+    second_hex = hex_char_to_decimal(second)?
+    Ok(first_hex * 16 + second_hex)
+
+## Internal helper for percent_decode
+hex_char_to_decimal : U8 -> Result U8 [InvalidHex]
+hex_char_to_decimal = |char|
+    if char >= 48 and char <= 57 then
+        Ok(char - 48) # '0' to '9'
+    else if char >= 65 and char <= 70 then
+        Ok(char - 55) # 'A' to 'F'
+    else if char >= 97 and char <= 102 then
+        Ok(char - 87) # 'a' to 'f'
+    else
+        Err(InvalidHex)
 
 ## Adds a [Str] query parameter to the end of the [Url].
 ##
@@ -715,3 +791,85 @@ expect
 #     output = host(Url.from_str(input))
 #     expected = Ok(":3000")
 #     expected == output
+
+# Test percent_encode
+expect
+    encoded = percent_encode("Hello World")
+    encoded == "Hello%20World"
+
+expect
+    encoded = percent_encode("a+b&c=d")
+    encoded == "a%2Bb%26c%3Dd"
+
+expect
+    encoded = percent_encode("café")
+    encoded == "caf%C3%A9"
+
+expect
+    encoded = percent_encode("ABC123xyz")
+    encoded == "ABC123xyz"
+
+expect
+    encoded = percent_encode(":/@?#")
+    encoded == "%3A%2F%40%3F%23"
+
+expect
+    encoded = percent_encode("")
+    encoded == ""
+
+expect
+    encoded = percent_encode("100%")
+    encoded == "100%25"
+
+# Test percent_decode
+expect
+    decoded = percent_decode("Hello%20World")
+    decoded == Ok("Hello World")
+
+expect
+    decoded = percent_decode("a%2Bb%26c%3Dd")
+    decoded == Ok("a+b&c=d")
+
+expect
+    decoded = percent_decode("caf%C3%A9")
+    decoded == Ok("café")
+
+expect
+    decoded = percent_decode("ABC123xyz")
+    decoded == Ok("ABC123xyz")
+
+expect
+    decoded = percent_decode("%3A%2F%40%3F%23")
+    decoded == Ok(":/@?#")
+
+expect
+    decoded = percent_decode("")
+    decoded == Ok("")
+
+expect
+    decoded = percent_decode("100%25")
+    decoded == Ok("100%")
+
+expect
+    decoded = percent_decode("Hello%21%40%23%24%20World")
+    decoded == Ok("Hello!@#$ World")
+
+expect
+    decoded = percent_decode("%C2%A9%202025")
+    decoded == Ok("© 2025")
+
+expect
+    decoded = percent_decode("%20%20foo%20%20%26%20%20bar%20%20")
+    decoded == Ok("  foo  &  bar  ")
+
+expect
+    decoded = percent_decode("%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D1%82")
+    decoded == Ok("Привет") # Russian: "Hello"
+
+expect
+    decoded = percent_decode("%E4%BD%A0%E5%A5%BD")
+    decoded == Ok("你好") # Chinese: "Hello"
+
+expect
+    decoded = percent_decode("%D9%85%D8%B1%D8%AD%D8%A8%D8%A7")
+    decoded == Ok("مرحبا") # Arabic: "Hello"
