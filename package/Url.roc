@@ -222,10 +222,10 @@ percent_encode = |input|
                     List.append(output, byte)
                 else
                     when byte is
-                        46 # '.'
+                        45 # '-'
+                        | 46 # '.'
                         | 95 # '_'
-                        | 126 # '~'
-                        | 150 -> # '-'
+                        | 126 -> # '~'
                             # These special characters can all be unescaped in paths
                             List.append(output, byte)
 
@@ -820,6 +820,21 @@ expect
 expect
     encoded = percent_encode("100%")
     encoded == "100%25"
+
+# '-' (byte 45) is unreserved and must not be escaped, while byte 0x96 (150)
+# must be: it is a UTF-8 continuation byte (e.g. the second byte of 'Ö'), so
+# passing it through raw would make the output invalid UTF-8.
+expect
+    encoded = percent_encode("foo-bar")
+    encoded == "foo-bar"
+
+expect
+    encoded = percent_encode("Öl")
+    encoded == "%C3%96l"
+
+expect
+    decoded = percent_decode("%C3%96l")
+    decoded == Ok("Öl")
 
 # Test percent_decode
 expect
