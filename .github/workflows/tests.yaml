@@ -1,4 +1,9 @@
+name: Tests
+
 on:
+  push:
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
 
@@ -9,19 +14,27 @@ concurrency:
 
 jobs:
   run-tests:
-    runs-on: [ubuntu-20.04]
+    runs-on: ubuntu-latest
     name: Run Roc tests
     steps:
-      - uses: actions/checkout@v3
+      - name: Check out roc-url
+        uses: actions/checkout@v4
+        with:
+          path: roc-url
 
       - name: Install Roc
         uses: hasnep/setup-roc@main
         with:
           roc-version: nightly
           testing: "true"
+
       - name: Check the Roc version
         run: roc --version
-      - name: Test Roc code
+
+      - name: Run test suite
+        working-directory: roc-url
         run: roc test package/main.roc
-      - name: Test building docs
+
+      - name: Verify docs build
+        working-directory: roc-url
         run: roc docs package/main.roc

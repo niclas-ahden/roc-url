@@ -13,14 +13,38 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Check out the repository
-        uses: actions/checkout@v3
+      - name: Check out roc-url
+        uses: actions/checkout@v4
+        with:
+          path: roc-url
+
       - name: Install Roc
         uses: hasnep/setup-roc@main
         with:
           roc-version: nightly
+
+      # Generate the docs for this release and attach them as a release
+      # asset. The Pages deploy (deploy-docs.yml) collects these assets to
+      # build the versioned docs site -- so each version's docs are frozen
+      # here, not committed to the repo. See deploy-docs.yml.
+      - name: Generate docs
+        working-directory: roc-url
+        env:
+          ROC_DOCS_URL_ROOT: /roc-url/${{ github.event.release.tag_name }}
+        run: roc docs package/main.roc
+
+      - name: Package docs
+        working-directory: roc-url
+        run: tar -czf docs.tar.gz -C generated-docs .
+
+      - name: Upload docs to release
+        working-directory: roc-url
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" docs.tar.gz --repo "${{ github.repository }}"
+
       - name: Bundle and release the library
         uses: hasnep/bundle-roc-library@v0.1.0
         with:
-          library: package/main.roc
+          library: roc-url/package/main.roc
           token: ${{ github.token }}
