@@ -1,1 +1,1 @@
-package [Url, Uri] {}
+package [Uri, Url] {}

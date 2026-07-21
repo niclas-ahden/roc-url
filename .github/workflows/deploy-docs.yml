@@ -13,12 +13,10 @@ on:
 
   workflow_dispatch:
 
-# this cancels workflows currently in progress if you start a new one
 concurrency:
   group: "pages"
   cancel-in-progress: true
 
-# Do not add permissions here! Configure them at the job level!
 permissions:
   contents: read
 
@@ -27,33 +25,43 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     permissions:
       pages: write
       id-token: write
     steps:
-      - name: Check out roc-url
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          path: roc-url
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - uses: roc-lang/setup-roc@39c354a6a838a0089eea9068a0414f49b62c5c08
-        with:
-          # Note: nightly hashes are not verified because they are updated regularly.
-          version: nightly
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v14
 
-      - run: roc version
+      - name: Cache Nix store
+        uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('**/*.nix', '**/flake.lock') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+          # Keep the saved store under GitHub's 10 GB/repo cache budget.
+          gc-max-store-size-linux: 5G
+          purge: true
+          purge-prefixes: nix-${{ runner.os }}-
+          purge-created: 0
+          purge-primary-key: never
+
+      - name: Build Roc from the flake
+        run: nix build .#roc
+
+      - run: ./result/bin/roc version
 
       # Fetch the release list once and derive a cache key from the set of
       # release tag names. A release's docs are immutable once published, so
       # while that set is unchanged the cache below hits and every download
-      # is skipped -- a push to main then only rebuilds the `main` docs.
+      # is skipped. A push to main will therefore only rebuild the `main` docs.
       - name: List releases
         id: releases
-        working-directory: roc-url
         run: |
           curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/releases" \
@@ -65,12 +73,11 @@ jobs:
         id: release-docs-cache
         uses: actions/cache@v4
         with:
-          path: roc-url/release_docs
+          path: ./release_docs
           key: release-docs-v1-${{ steps.releases.outputs.key }}
 
       - name: Download and extract docs for each release
         if: steps.release-docs-cache.outputs.cache-hit != 'true'
-        working-directory: roc-url
         run: |
           mkdir -p ./release_docs
           jq -c '.[]' releases.json | while read -r release; do
@@ -90,7 +97,6 @@ jobs:
           done
 
       - name: Assemble the docs site
-        working-directory: roc-url
         run: |
           mkdir -p ./temp_docs
           cp -r ./release_docs/. ./temp_docs/ 2>/dev/null || true
@@ -111,18 +117,17 @@ jobs:
           echo "Landing page redirects to ${redirect}"
 
       - name: Add docs for the main branch
-        working-directory: roc-url
         env:
-          ROC_DOCS_URL_ROOT: /roc-url/main
+          ROC_DOCS_URL_ROOT: /${{ github.event.repository.name }}/main
         run: |
-          roc docs ./package/main.roc
+          ./result/bin/roc docs ./package/main.roc
           mkdir -p ./temp_docs/main
           mv ./generated-docs/* ./temp_docs/main
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: "roc-url/temp_docs"
+          path: "./temp_docs"
 
       - name: Deploy to GitHub Pages
         id: deployment
