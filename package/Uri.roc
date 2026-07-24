@@ -75,7 +75,7 @@ Uri := [
 
 		if Str.starts_with(sans_query, "//") {
 			rest = 
-				match Str.find_first(sans_query, "//") {
+				match Str.split_first(sans_query, "//") {
 					Ok({ after, .. }) => after
 					Err(NotFound) => sans_query
 				}
@@ -90,11 +90,11 @@ Uri := [
 				fragment: parsed_fragment,
 			})
 		} else {
-			match Str.find_first(sans_query, ":") {
+			match Str.split_first(sans_query, ":") {
 				Ok({ before, after }) if is_scheme_token(before) =>
 					if Str.starts_with(after, "//") {
 						rest = 
-							match Str.find_first(after, "//") {
+							match Str.split_first(after, "//") {
 								Ok({ after: r, .. }) => r
 								Err(NotFound) => after
 							}
@@ -362,7 +362,7 @@ Uri := [
 				List.map(
 					List.drop_if(Str.split_on(q, "&"), |pair| Str.is_empty(pair)),
 					|pair|
-						match Str.find_first(pair, "=") {
+						match Str.split_first(pair, "=") {
 							Ok({ before, after }) => (percent_decode_lenient(before), percent_decode_lenient(after))
 							Err(NotFound) => (percent_decode_lenient(pair), "")
 						},
@@ -455,7 +455,7 @@ Uri := [
 						{ kept: [], replaced: False },
 						|state, piece| {
 							piece_key = 
-								match Str.find_first(piece, "=") {
+								match Str.split_first(piece, "=") {
 									Ok({ before, .. }) => before
 									Err(NotFound) => piece
 								}
@@ -847,7 +847,7 @@ Uri := [
 	## later "#"s are part of the fragment itself.
 	extract_fragment : Str -> ([Fragment(Str), EmptyFragment, NoFragment], Str)
 	extract_fragment = |input|
-		match Str.find_first(input, "#") {
+		match Str.split_first(input, "#") {
 			Ok({ before: rest, after: f }) =>
 				if Str.is_empty(f) {
 					(EmptyFragment, rest)
@@ -862,7 +862,7 @@ Uri := [
 	## already been removed), and later "?"s are part of the query itself.
 	extract_query : Str -> ([Query(Str), EmptyQuery, NoQuery], Str)
 	extract_query = |input|
-		match Str.find_first(input, "?") {
+		match Str.split_first(input, "?") {
 			Ok({ before: rest, after: q }) =>
 				if Str.is_empty(q) {
 					(EmptyQuery, rest)
@@ -885,7 +885,7 @@ Uri := [
 	}
 	parse_authority_and_path = |rest| {
 		split_path = 
-			match Str.find_first(rest, "/") {
+			match Str.split_first(rest, "/") {
 				Ok({ before, after }) => { authority: before, path: Str.concat("/", after) }
 				Err(NotFound) => { authority: rest, path: "" }
 			}
@@ -916,14 +916,14 @@ Uri := [
 	}
 	split_host_port = |text|
 		if Str.starts_with(text, "[") {
-			match Str.find_first(text, "]") {
+			match Str.split_first(text, "]") {
 				Ok({ before, after }) => {
 					bracketed = Str.concat(before, "]")
 					if Str.is_empty(after) {
 						{ host: Host(bracketed), port: NoPort }
 					} else if Str.starts_with(after, ":") {
 						port_text = 
-							match Str.find_first(after, ":") {
+							match Str.split_first(after, ":") {
 								Ok({ after: pt, .. }) => pt
 								Err(NotFound) => ""
 							}
@@ -938,7 +938,7 @@ Uri := [
 				Err(NotFound) => { host: Host(text), port: NoPort }
 			}
 		} else {
-			match Str.find_first(text, ":") {
+			match Str.split_first(text, ":") {
 				Ok({ before, after }) => { host: host_tag(before), port: parse_port(after) }
 				Err(NotFound) => { host: host_tag(text), port: NoPort }
 			}
