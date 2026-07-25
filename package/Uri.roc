@@ -358,18 +358,35 @@ Uri := [
 	query_params : Uri -> List((Str, Str))
 	query_params = |Uri(u)|
 		match u.query {
-			Query(q) =>
-				List.map(
-					List.drop_if(Str.split_on(q, "&"), |pair| Str.is_empty(pair)),
-					|pair|
-						match Str.split_first(pair, "=") {
-							Ok({ before, after }) => (percent_decode_lenient(before), percent_decode_lenient(after))
-							Err(NotFound) => (percent_decode_lenient(pair), "")
-						},
-				)
-
+			Query(q) => parse_query(q)
 			EmptyQuery | NoQuery => []
 		}
+
+	## A query string on its own, as decoded key/value pairs. Pass the text that
+	## follows the `?`, without the `?` itself.
+	##
+	## The rules are [Uri.query_params]' rules: repeated keys and order kept,
+	## keys and values percent-decoded leniently, `foo` and `foo=` both yielding
+	## `("foo", "")`, empty pairs skipped.
+	##
+	## Reach for this when the query text arrives on its own, with no URL around
+	## it to parse: an `application/x-www-form-urlencoded` request body, or the
+	## options half of a connection string you split yourself.
+	##
+	## ```
+	## # Gives [("mode", "ro"), ("cache", "shared")]
+	## Uri.parse_query("mode=ro&cache=shared")
+	## ```
+	parse_query : Str -> List((Str, Str))
+	parse_query = |query_str|
+		List.map(
+			List.drop_if(Str.split_on(query_str, "&"), |pair| Str.is_empty(pair)),
+			|pair|
+				match Str.split_first(pair, "=") {
+					Ok({ before, after }) => (percent_decode_lenient(before), percent_decode_lenient(after))
+					Err(NotFound) => (percent_decode_lenient(pair), "")
+				},
+		)
 
 	# ---------------------------------------------------------------------------
 	# Writers: field updates, never re-parse. Every writer keeps the record
@@ -1592,6 +1609,26 @@ expect Uri.query_params(Uri.parse("https://x.com")) == []
 expect Uri.query_params(Uri.parse("https://x.com?a=1&&b=2")) == [("a", "1"), ("b", "2")]
 expect Uri.query_params(Uri.parse("https://x.com?a=1&")) == [("a", "1")]
 expect Uri.query_params(Uri.parse("https://x.com?&&")) == []
+
+# =============================================================================
+# Tests: parse_query
+# =============================================================================
+
+expect Uri.parse_query("a=1&b=2") == [("a", "1"), ("b", "2")]
+expect Uri.parse_query("") == []
+
+# The same rules query_params follows: repeated keys and order kept, bare flags
+# become ("key", ""), keys and values decoded leniently, empty pairs skipped.
+expect Uri.parse_query("a=1&a=2") == [("a", "1"), ("a", "2")]
+expect Uri.parse_query("foo") == [("foo", "")]
+expect Uri.parse_query("foo=") == [("foo", "")]
+expect Uri.parse_query("caf%C3%A9=du%20Monde") == [("café", "du Monde")]
+expect Uri.parse_query("a=%zz") == [("a", "%zz")]
+expect Uri.parse_query("a=1&&b=2") == [("a", "1"), ("b", "2")]
+expect Uri.parse_query("&&") == []
+
+# A query lifted out of a Uri parses to the same pairs the Uri reports
+expect Uri.parse_query("mode=ro&cache=shared") == Uri.query_params(Uri.parse("sqlite:///db.sqlite?mode=ro&cache=shared"))
 
 # What append_param writes, query_params reads back. The old code broke this
 # round-trip.
