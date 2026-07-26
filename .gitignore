@@ -3,6 +3,8 @@
 !*.*
 !*/
 
+!LICENSE
+
 .direnv/
 .envrc
 generated-docs/
