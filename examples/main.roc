@@ -1,5 +1,5 @@
 app [main!] {
-	pf: platform "https://github.com/niclas-ahden/basic-cli/releases/download/0.22.1/DobkAk7zNyqAgqh2Riaj5c5DtWtKhd5iVYE5RFa6izcd.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
 	url: "../package/main.roc",
 }
 
@@ -25,7 +25,7 @@ main! = |_| {
 				Err(e) => "${url} -> ${Str.inspect(e)}"
 			}
 
-		Stdout.line!(line)
+		Stdout.line!(line)?
 
 		# example.com -> https://example.com/
 		# example.com/spaces-trimmed   -> https://example.com/spaces-trimmed
@@ -130,12 +130,7 @@ main! = |_| {
 	Stdout.line!("")?
 	Stdout.line!("# Uri keeps nonsense, labelled")?
 	janky = Uri.parse("https://x.example:banana/path")
-	port_line = 
-		match Uri.port(janky) {
-			Ok(_) => "a parseable port"
-			Err(PortParseErr(raw)) => "\"${raw}\" is not a port, but ${Uri.to_str(janky)} survives"
-		}
-	Stdout.line!(port_line)?
+	Stdout.line!(describe_port(janky))?
 	# "banana" is not a port, but https://x.example:banana/path survives
 
 	Ok({})
@@ -143,3 +138,10 @@ main! = |_| {
 
 bool_str : Bool -> Str
 bool_str = |b| if b "True" else "False"
+
+describe_port : Uri -> Str
+describe_port = |uri|
+	match Uri.port(uri) {
+		Ok(_) => "a parseable port"
+		Err(PortParseErr(raw)) => "\"${raw}\" is not a port, but ${Uri.to_str(uri)} survives"
+	}
